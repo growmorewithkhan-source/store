@@ -1,0 +1,7 @@
+{
+  "name": "Sohail Super Store Pro ERP",
+  "description": "A comprehensive POS and ERP system for retail stores featuring inventory management, sales tracking, khata (credit) management, and real-time reporting.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

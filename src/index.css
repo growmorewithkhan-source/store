@@ -1,0 +1,59 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-brand: #6366f1;
+  --color-bg: #0a0c10;
+  --color-card: #161b22;
+  --color-success: #238636;
+  --color-danger: #da3633;
+  --color-warning: #d29922;
+}
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+    background-color: var(--color-bg);
+  }
+  
+  body {
+    @apply text-[#f0f6fc] font-sans;
+  }
+}
+
+@keyframes pulse-green { 0%, 100% { box-shadow: 0 0 10px rgba(35,134,54,0.2); } 50% { box-shadow: 0 0 45px rgba(35,134,54,0.8); } }
+@keyframes pulse-red { 0%, 100% { box-shadow: 0 0 10px rgba(218,54,51,0.2); } 50% { box-shadow: 0 0 45px rgba(218,54,51,0.8); } }
+@keyframes pulse-blue { 0%, 100% { box-shadow: 0 0 10px rgba(99,102,241,0.2); } 50% { box-shadow: 0 0 45px rgba(99,102,241,0.8); } }
+@keyframes pulse-orange { 0%, 100% { box-shadow: 0 0 10px rgba(210,153,34,0.2); } 50% { box-shadow: 0 0 45px rgba(210,153,34,0.8); } }
+
+.s-sales { animation: pulse-green 2.5s infinite; border-bottom: 3px solid var(--color-success); }
+.s-exp { animation: pulse-red 2.5s infinite; border-bottom: 3px solid var(--color-danger); }
+.s-profit { animation: pulse-blue 2.5s infinite; border-bottom: 3px solid var(--color-brand); }
+.s-khata { animation: pulse-orange 2.5s infinite; border-bottom: 3px solid var(--color-warning); }
+
+.live-dot {
+  @apply w-2.5 h-2.5 bg-[#238636] rounded-full inline-block mr-1.5;
+  box-shadow: 0 0 10px #238636;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
