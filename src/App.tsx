@@ -216,9 +216,13 @@ export default function App() {
         setIsLoggedIn(true);
         setLoginError(false);
         showToast("System Unlocked!", "success");
-      } catch (e) {
+      } catch (e: any) {
         console.error("Auth error:", e);
-        showToast("Failed to authenticate", "error");
+        if (e.code === 'auth/operation-not-allowed') {
+          showToast("Anonymous login disabled in Firebase Console", "error");
+        } else {
+          showToast("Failed to authenticate: " + (e.message || "Unknown error"), "error");
+        }
       }
     } else {
       setLoginError(true);
@@ -592,6 +596,17 @@ export default function App() {
   };
 
   // --- Render Helpers ---
+
+  if (!isAuthReady) {
+    return (
+      <div className="fixed inset-0 bg-bg flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-10 h-10 text-brand animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Initializing System...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return (
