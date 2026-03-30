@@ -208,20 +208,20 @@ export default function App() {
   };
 
   const handleLogin = async () => {
-    if (pin === CORRECT_PIN) {
+    if (pin.trim() === CORRECT_PIN) {
+      setIsLoggedIn(true);
+      setLoginError(false);
       try {
         if (!auth.currentUser) {
           await signInAnonymously(auth);
         }
-        setIsLoggedIn(true);
-        setLoginError(false);
         showToast("System Unlocked!", "success");
       } catch (e: any) {
         console.error("Auth error:", e);
         if (e.code === 'auth/operation-not-allowed') {
-          showToast("Anonymous login disabled in Firebase Console", "error");
+          showToast("Anonymous login disabled. Data sync may be limited.", "error");
         } else {
-          showToast("Failed to authenticate: " + (e.message || "Unknown error"), "error");
+          showToast("Logged in locally. Cloud sync may be limited.", "error");
         }
       }
     } else {
@@ -611,6 +611,22 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div className="fixed inset-0 bg-bg z-[2000] flex items-center justify-center p-4">
+        <AnimatePresence>
+          {toast && (
+            <motion.div
+              initial={{ opacity: 0, y: -50 }}
+              animate={{ opacity: 1, y: 20 }}
+              exit={{ opacity: 0, y: -50 }}
+              className={cn(
+                "fixed top-0 left-1/2 -translate-x-1/2 z-[7000] px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-2",
+                toast.type === 'success' ? "bg-success text-white" : "bg-danger text-white"
+              )}
+            >
+              {toast.type === 'success' ? <ShieldCheck className="w-5 h-5" /> : <X className="w-5 h-5" />}
+              {toast.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
         <motion.div 
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
