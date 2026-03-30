@@ -124,7 +124,7 @@ const CORRECT_PIN = "1234";
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -174,11 +174,18 @@ export default function App() {
   // --- Firebase Auth ---
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setIsAuthReady(true);
       if (u) {
         setIsLoggedIn(true);
+      } else {
+        // Auto-login anonymously if no user is detected
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.error("Auto-login failed:", e);
+        }
       }
     });
     return () => unsub();
@@ -608,67 +615,6 @@ export default function App() {
     );
   }
 
-  if (!isLoggedIn) {
-    return (
-      <div className="fixed inset-0 bg-bg z-[2000] flex items-center justify-center p-4">
-        <AnimatePresence>
-          {toast && (
-            <motion.div
-              initial={{ opacity: 0, y: -50 }}
-              animate={{ opacity: 1, y: 20 }}
-              exit={{ opacity: 0, y: -50 }}
-              className={cn(
-                "fixed top-0 left-1/2 -translate-x-1/2 z-[7000] px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-2",
-                toast.type === 'success' ? "bg-success text-white" : "bg-danger text-white"
-              )}
-            >
-              {toast.type === 'success' ? <ShieldCheck className="w-5 h-5" /> : <X className="w-5 h-5" />}
-              {toast.message}
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <motion.div 
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="bg-card p-10 rounded-[30px] border border-brand text-center w-full max-w-[400px] shadow-[0_0_30px_rgba(99,102,241,0.3)]"
-        >
-          <ShieldCheck className="w-16 h-16 text-brand mx-auto mb-6" />
-          <h2 className="text-2xl font-bold mb-6">Sohail Super Store</h2>
-          
-          <div className="space-y-4">
-            <div className="bg-[#0d1117] border border-[#30363d] p-4 rounded-xl">
-              <p className="text-sm text-[#8b949e] mb-2">Login with Google to Sync Data</p>
-              <button 
-                onClick={handleGoogleLogin} 
-                className="w-full p-4 rounded-xl bg-white text-black font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
-              >
-                <LogIn className="w-5 h-5" /> Sign in with Google
-              </button>
-            </div>
-
-            <div className="relative py-4">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-[#30363d]"></span></div>
-              <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-[#8b949e]">Or use PIN</span></div>
-            </div>
-
-            <input 
-              type="password" 
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              placeholder="Enter PIN" 
-              className="bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl w-full outline-none text-center text-2xl tracking-[10px]"
-              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-            />
-            <button onClick={handleLogin} className="w-full p-4 rounded-xl bg-linear-to-br from-brand to-[#a855f7] text-white font-extrabold transition-all active:scale-95">
-              UNLOCK SYSTEM
-            </button>
-          </div>
-          {loginError && <p className="text-danger text-sm mt-4">Invalid PIN!</p>}
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-bg text-[#f0f6fc]">
       {/* Modals */}
@@ -827,16 +773,26 @@ export default function App() {
             >
               <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-extrabold">Sohail Super Store</h2>
-                <div className="text-xs text-[#4ade80] font-bold flex items-center gap-2">
-                  {isSyncing ? (
-                    <RefreshCw className="w-3 h-3 animate-spin text-brand" />
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <span className="live-dot"></span>
-                      <RefreshCw className="w-3 h-3 text-[#8b949e] opacity-50" />
-                    </div>
+                <div className="flex items-center gap-3">
+                  {(!user || user.isAnonymous) && (
+                    <button 
+                      onClick={handleGoogleLogin}
+                      className="text-[10px] bg-white text-black px-3 py-1 rounded-full font-bold flex items-center gap-1 active:scale-95 transition-all"
+                    >
+                      <LogIn className="w-3 h-3" /> SYNC GOOGLE
+                    </button>
                   )}
-                  {isSyncing ? "Syncing..." : "Online"}
+                  <div className="text-xs text-[#4ade80] font-bold flex items-center gap-2">
+                    {isSyncing ? (
+                      <RefreshCw className="w-3 h-3 animate-spin text-brand" />
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <span className="live-dot"></span>
+                        <RefreshCw className="w-3 h-3 text-[#8b949e] opacity-50" />
+                      </div>
+                    )}
+                    {isSyncing ? "Syncing..." : "Online"}
+                  </div>
                 </div>
               </div>
 
@@ -874,7 +830,7 @@ export default function App() {
                     <ShieldCheck className="w-5 h-5" /> DEV CONTACT
                   </button>
                   <button onClick={handleLogout} className="p-4 rounded-xl bg-danger/20 text-danger border border-danger/30 text-sm font-bold flex items-center justify-center gap-2">
-                    <LogOut className="w-5 h-5" /> LOGOUT
+                    <LogOut className="w-5 h-5" /> {user?.isAnonymous ? 'RESET SYSTEM' : 'LOGOUT'}
                   </button>
                 </div>
               </div>
