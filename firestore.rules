@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: stock
+    // Document ID: productId
+    // Fields:
+    //   - name: string (required)
+    //   - price: number (required)
+    //   - qty: integer (required)
+    //   - barcode: string (optional)
+    //
+    // Collection: sales
+    // Document ID: saleId
+    // Fields:
+    //   - total: number (required)
+    //   - date: string (required, YYYY-MM-DD)
+    //   - time: string (required)
+    //   - items: list (required)
+    //
+    // Collection: expenses
+    // Document ID: expenseId
+    // Fields:
+    //   - title: string (required)
+    //   - amt: number (required)
+    //   - date: string (required, YYYY-MM-DD)
+    //
+    // Collection: khata
+    // Document ID: khataId
+    // Fields:
+    //   - name: string (required)
+    //   - due: number (required)
+    //   - date: string (required)
+    //   - phone: string (optional)
+    //   - description: string (optional)
+    //   - status: string (optional, 'unpaid' | 'paid')
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "growmorewithkhan@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidProduct(data) {
+      return hasRequiredFields(['name', 'price', 'qty']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.price is number && data.price >= 0 &&
+             data.qty is int &&
+             (!('barcode' in data) || (data.barcode is string && data.barcode.size() < 100));
+    }
+
+    function isValidSale(data) {
+      return hasRequiredFields(['total', 'date', 'time', 'items']) &&
+             data.total is number && data.total >= 0 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
+             data.time is string &&
+             data.items is list && data.items.size() < 100;
+    }
+
+    function isValidExpense(data) {
+      return hasRequiredFields(['title', 'amt', 'date']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.amt is number && data.amt >= 0 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function isValidKhata(data) {
+      return hasRequiredFields(['name', 'due', 'date']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.due is number &&
+             data.date is string &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
+             (!('description' in data) || (data.description is string && data.description.size() < 500)) &&
+             (!('status' in data) || (data.status in ['unpaid', 'paid']));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User profiles (for RBAC)
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == userId && 
+                    request.resource.data.role == 'user'; // Default role
+      allow update: if isAdmin(); // Only admins can change roles
+    }
+
+    // Stock
+    match /stock/{productId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidProduct(request.resource.data);
+      allow update: if isAuthenticated() && isValidProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Sales
+    match /sales/{saleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidSale(request.resource.data);
+      allow update: if isAuthenticated() && isValidSale(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Expenses
+    match /expenses/{expenseId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidExpense(request.resource.data);
+      allow update: if isAuthenticated() && isValidExpense(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Khata
+    match /khata/{khataId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidKhata(request.resource.data);
+      allow update: if isAuthenticated() && isValidKhata(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}

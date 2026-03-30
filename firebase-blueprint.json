@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Stock item in the store",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the product" },
+        "price": { "type": "number", "description": "Price of the product" },
+        "qty": { "type": "integer", "description": "Quantity in stock" },
+        "barcode": { "type": "string", "description": "Barcode or unique identifier" }
+      },
+      "required": ["name", "price", "qty"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "A completed transaction",
+      "type": "object",
+      "properties": {
+        "total": { "type": "number", "description": "Total amount of the sale" },
+        "date": { "type": "string", "description": "Date of the sale (YYYY-MM-DD)" },
+        "time": { "type": "string", "description": "Time of the sale" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "qty": { "type": "integer" },
+              "barcode": { "type": "string" },
+              "count": { "type": "integer" },
+              "sIdx": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "required": ["total", "date", "time", "items"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Store expense",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Title of the expense" },
+        "amt": { "type": "number", "description": "Amount spent" },
+        "date": { "type": "string", "description": "Date of the expense (YYYY-MM-DD)" }
+      },
+      "required": ["title", "amt", "date"]
+    },
+    "Khata": {
+      "title": "Khata",
+      "description": "Credit record for a customer",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Customer name" },
+        "due": { "type": "number", "description": "Amount due" },
+        "date": { "type": "string", "description": "Date of record" },
+        "phone": { "type": "string", "description": "Customer phone number" },
+        "description": { "type": "string", "description": "Details of the credit" },
+        "status": { "type": "string", "enum": ["unpaid", "paid"] }
+      },
+      "required": ["name", "due", "date"]
+    }
+  },
+  "firestore": {
+    "/stock/{productId}": {
+      "schema": "Product",
+      "description": "Collection of stock items"
+    },
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Collection of sales records"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Collection of expense records"
+    },
+    "/khata/{khataId}": {
+      "schema": "Khata",
+      "description": "Collection of customer credit records"
+    }
+  }
+}

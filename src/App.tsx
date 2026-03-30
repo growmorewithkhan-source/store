@@ -30,7 +30,8 @@ import {
   MessageSquare,
   Send,
   CheckCircle,
-  Smartphone
+  Smartphone,
+  LogIn
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -46,6 +47,28 @@ import {
 } from 'recharts';
 import { Html5Qrcode } from 'html5-qrcode';
 import { cn } from './lib/utils';
+
+// --- Firebase ---
+import { auth, db } from './firebase';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged,
+  signOut,
+  User,
+  signInAnonymously
+} from 'firebase/auth';
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  setDoc, 
+  addDoc, 
+  deleteDoc, 
+  query, 
+  orderBy,
+  getDoc
+} from 'firebase/firestore';
 
 // --- Types ---
 
@@ -99,151 +122,15 @@ const SHEET_ID = "1iEVlp5UloulX2gzNVu0wwzS7BkcBLZvTCAi_Vh5fvg4";
 const CORRECT_PIN = "1234";
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isGoogleAuth, setIsGoogleAuth] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
-  const [lastSync, setLastSync] = useState<string | null>(null);
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [activeScreen, setActiveScreen] = useState<Screen>('dash');
   const [messageModal, setMessageModal] = useState<{ khata: Khata; isPaid: boolean } | null>(null);
-  const [data, setData] = useState<AppData>(() => {
-    const saved = localStorage.getItem('sohail_super_v1');
-    return saved ? JSON.parse(saved) : { stock: [], sales: [], expenses: [], khata: [] };
-  });
-
-  // --- Auth & Sync Logic ---
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const res = await fetch('/api/auth/status');
-        const { isAuthenticated } = await res.json();
-        setIsGoogleAuth(isAuthenticated);
-        if (isAuthenticated) {
-          pullFromCloud();
-        }
-      } catch (e) {
-        console.error('Auth check failed:', e);
-      }
-    };
-    checkAuth();
-  }, []);
-
-  const handleGoogleLogin = async () => {
-    try {
-      const res = await fetch('/api/auth/url');
-      const { url } = await res.json();
-      const win = window.open(url, 'google_auth', 'width=600,height=700');
-      if (!win) {
-        showToast("Pop-up blocked! Please allow pop-ups to connect.", "error");
-        return;
-      }
-    } catch (e) {
-      showToast("Failed to connect to Google", "error");
-    }
-  };
-
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        setIsGoogleAuth(true);
-        pullFromCloud();
-        showToast("Connected to Google Sheets!", "success");
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
-  const pullFromCloud = async () => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    try {
-      const res = await fetch('/api/legacy-sync');
-      if (res.ok) {
-        const remoteData = await res.json();
-        if (remoteData && remoteData.stock) {
-          if (JSON.stringify(remoteData) !== JSON.stringify(data)) {
-            setData(remoteData);
-          }
-        }
-      }
-      setLastSync(new Date().toLocaleTimeString());
-    } catch (e) {
-      console.error("Pull error:", e);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const pushToCloud = async (overrideData?: AppData) => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    try {
-      const res = await fetch('/api/legacy-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(overrideData || data),
-      });
-      if (res.ok) {
-        setLastSync(new Date().toLocaleTimeString());
-      }
-    } catch (e) {
-      console.error("Push error:", e);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  // --- Sync Logic ---
-  
-  // Push to cloud whenever data changes (debounced)
-  useEffect(() => {
-    if (!isDirty) return;
-    const timer = setTimeout(() => {
-      pushToCloud().then(() => setIsDirty(false));
-    }, 2000); // Wait 2 seconds of inactivity before pushing
-    return () => clearTimeout(timer);
-  }, [data, isDirty]);
-
-  // Pull from cloud every 15 seconds to get remote changes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!isDirty) {
-        pullFromCloud();
-      }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [isDirty]);
-
-  const syncToCloud = async () => {
-    // Manual sync triggers both
-    await pushToCloud();
-    await pullFromCloud();
-  };
-
-  // Optional: Legacy sync function if needed manually
-  const triggerLegacySync = async () => {
-    if (SCRIPT_URL) {
-      setIsSyncing(true);
-      try {
-        await fetch(SCRIPT_URL, { 
-          method: 'POST', 
-          mode: 'no-cors', 
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data) 
-        });
-        showToast("Legacy Sync Sent!", "success");
-        setLastSync(new Date().toLocaleTimeString());
-      } catch (e) {
-        showToast("Legacy Sync Failed!", "error");
-      } finally {
-        setIsSyncing(false);
-      }
-    }
-  };
+  const [data, setData] = useState<AppData>({ stock: [], sales: [], expenses: [], khata: [] });
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [showScanner, setShowScanner] = useState(false);
   const [showDevModal, setShowDevModal] = useState(false);
@@ -262,28 +149,6 @@ export default function App() {
   // Refs
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  // Persistence
-  useEffect(() => {
-    localStorage.setItem('sohail_super_v1', JSON.stringify(data));
-    setIsDirty(true);
-  }, [data]);
-
-  // --- Auth Logic ---
-
-  const handleLogin = () => {
-    if (pin === CORRECT_PIN) {
-      setIsLoggedIn(true);
-      setLoginError(false);
-    } else {
-      setLoginError(true);
-    }
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setPin('');
-  };
-
   // --- Stats Logic ---
 
   const stats = useMemo(() => {
@@ -299,56 +164,153 @@ export default function App() {
     };
   }, [data]);
 
-  // --- Inventory Logic ---
-
-  const saveProduct = () => {
-    const { name, price, qty, idx } = productForm;
-    const p = parseFloat(price);
-    const q = parseInt(qty);
-    if (!name || isNaN(p)) return;
-
-    setData(prev => {
-      const newStock = [...prev.stock];
-      if (idx !== null) {
-        newStock[idx] = { name, price: p, qty: q, barcode: name };
-      } else {
-        const existingIdx = newStock.findIndex(item => item.name.toLowerCase() === name.toLowerCase() && item.price === p);
-        if (existingIdx !== -1) {
-          newStock[existingIdx] = { ...newStock[existingIdx], qty: newStock[existingIdx].qty + q };
-        } else {
-          newStock.push({ name, price: p, qty: q, barcode: name });
-        }
-      }
-      return { ...prev, stock: newStock };
-    });
-    setProductForm({ name: '', price: '', qty: '', idx: null });
-  };
-
-  const deleteItem = (key: keyof AppData, idx: number) => {
-    setConfirmModal({
-      show: true,
-      title: "Delete Confirmation",
-      message: "Are you sure you want to delete this item? This action cannot be undone.",
-      onConfirm: () => {
-        setData(prev => {
-          const newList = [...(prev[key] as any[])];
-          newList.splice(idx, 1);
-          return { ...prev, [key]: newList };
-        });
-        setConfirmModal(null);
-        showToast("Item deleted successfully", "success");
-      }
-    });
-  };
+  const cartTotal = useMemo(() => cart.reduce((a, b) => a + (b.price * b.count), 0), [cart]);
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
+  // --- Firebase Auth ---
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+      if (u) {
+        setIsLoggedIn(true);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      showToast("Logged in with Google!", "success");
+    } catch (e) {
+      console.error("Login error:", e);
+      showToast("Failed to login with Google", "error");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setIsLoggedIn(false);
+      setUser(null);
+      setPin('');
+      showToast("Logged out successfully", "success");
+    } catch (e) {
+      console.error("Logout error:", e);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (pin === CORRECT_PIN) {
+      try {
+        if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+        setIsLoggedIn(true);
+        setLoginError(false);
+        showToast("System Unlocked!", "success");
+      } catch (e) {
+        console.error("Auth error:", e);
+        showToast("Failed to authenticate", "error");
+      }
+    } else {
+      setLoginError(true);
+    }
+  };
+
+  // --- Firestore Sync ---
+
+  useEffect(() => {
+    if (!user) return;
+
+    setIsSyncing(true);
+    
+    const unsubStock = onSnapshot(collection(db, 'stock'), (snap) => {
+      const stock = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as any));
+      setData(prev => ({ ...prev, stock }));
+    });
+
+    const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (snap) => {
+      const sales = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as any));
+      setData(prev => ({ ...prev, sales }));
+    });
+
+    const unsubExpenses = onSnapshot(query(collection(db, 'expenses'), orderBy('date', 'desc')), (snap) => {
+      const expenses = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as any));
+      setData(prev => ({ ...prev, expenses }));
+    });
+
+    const unsubKhata = onSnapshot(collection(db, 'khata'), (snap) => {
+      const khata = snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as any));
+      setData(prev => ({ ...prev, khata }));
+      setIsSyncing(false);
+    });
+
+    return () => {
+      unsubStock();
+      unsubSales();
+      unsubExpenses();
+      unsubKhata();
+    };
+  }, [user]);
+
+  // --- Inventory Logic ---
+
+  const saveProduct = async () => {
+    const { name, price, qty, idx } = productForm;
+    const p = parseFloat(price);
+    const q = parseInt(qty);
+    if (!name || isNaN(p)) return;
+
+    try {
+      if (idx !== null) {
+        const productId = (data.stock[idx] as any).id;
+        await setDoc(doc(db, 'stock', productId), { name, price: p, qty: q, barcode: name });
+      } else {
+        const existing = data.stock.find(item => item.name.toLowerCase() === name.toLowerCase() && item.price === p);
+        if (existing) {
+          await setDoc(doc(db, 'stock', (existing as any).id), { ...existing, qty: existing.qty + q });
+        } else {
+          await addDoc(collection(db, 'stock'), { name, price: p, qty: q, barcode: name });
+        }
+      }
+      setProductForm({ name: '', price: '', qty: '', idx: null });
+      showToast("Product saved!", "success");
+    } catch (e) {
+      console.error("Save product error:", e);
+      showToast("Failed to save product", "error");
+    }
+  };
+
+  const deleteItem = (key: keyof AppData, idx: number) => {
+    const item = data[key][idx] as any;
+    setConfirmModal({
+      show: true,
+      title: "Delete Confirmation",
+      message: "Are you sure you want to delete this item? This action cannot be undone.",
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, key, item.id));
+          setConfirmModal(null);
+          showToast("Item deleted successfully", "success");
+        } catch (e) {
+          console.error("Delete error:", e);
+          showToast("Failed to delete item", "error");
+        }
+      }
+    });
+  };
+
   // --- POS Logic ---
 
-  const addToCart = (idx: number) => {
+  const addToCart = async (idx: number) => {
     const product = data.stock[idx];
     if (product.qty > 0) {
       const newCart = [...cart];
@@ -359,31 +321,31 @@ export default function App() {
         newCart.push({ ...product, count: 1, sIdx: idx });
       }
       
-      setData(prev => {
-        const newStock = [...prev.stock];
-        newStock[idx] = { ...newStock[idx], qty: newStock[idx].qty - 1 };
-        return { ...prev, stock: newStock };
-      });
-      setCart(newCart);
+      try {
+        await setDoc(doc(db, 'stock', (product as any).id), { ...product, qty: product.qty - 1 });
+        setCart(newCart);
+      } catch (e) {
+        console.error("Add to cart error:", e);
+        showToast("Failed to update stock", "error");
+      }
     }
   };
 
-  const removeFromCart = (idx: number) => {
+  const removeFromCart = async (idx: number) => {
     const item = cart[idx];
-    setData(prev => {
-      const newStock = [...prev.stock];
-      newStock[item.sIdx] = { ...newStock[item.sIdx], qty: newStock[item.sIdx].qty + item.count };
-      return { ...prev, stock: newStock };
-    });
-    
-    const newCart = [...cart];
-    newCart.splice(idx, 1);
-    setCart(newCart);
+    const product = data.stock[item.sIdx];
+    try {
+      await setDoc(doc(db, 'stock', (product as any).id), { ...product, qty: product.qty + item.count });
+      const newCart = [...cart];
+      newCart.splice(idx, 1);
+      setCart(newCart);
+    } catch (e) {
+      console.error("Remove from cart error:", e);
+      showToast("Failed to update stock", "error");
+    }
   };
 
-  const cartTotal = useMemo(() => cart.reduce((a, b) => a + (b.price * b.count), 0), [cart]);
-
-  const handlePrint = (reprintSale?: Sale) => {
+  const handlePrint = async (reprintSale?: Sale) => {
     const items = reprintSale ? reprintSale.items : cart;
     const total = reprintSale ? reprintSale.total : cartTotal;
     
@@ -494,7 +456,7 @@ export default function App() {
         time: new Date().toLocaleTimeString(),
         items: [...cart]
       };
-      setData(prev => ({ ...prev, sales: [...prev.sales, newSale] }));
+      addDoc(collection(db, 'sales'), newSale).catch(e => console.error("Sale save error:", e));
       setCart([]);
     }
   };
@@ -537,28 +499,32 @@ export default function App() {
 
   // --- Other Logic ---
 
-  const saveExpense = () => {
+  const saveExpense = async () => {
     const { title, amt, idx } = expenseForm;
     const a = parseFloat(amt);
     if (!title || isNaN(a)) return;
 
-    setData(prev => {
-      const newExpenses = [...prev.expenses];
+    try {
       const expense = { title, amt: a, date: new Date().toLocaleDateString('en-CA') };
-      if (idx !== null) newExpenses[idx] = expense;
-      else newExpenses.push(expense);
-      return { ...prev, expenses: newExpenses };
-    });
-    setExpenseForm({ title: '', amt: '', idx: null });
+      if (idx !== null) {
+        await setDoc(doc(db, 'expenses', (data.expenses[idx] as any).id), expense);
+      } else {
+        await addDoc(collection(db, 'expenses'), expense);
+      }
+      setExpenseForm({ title: '', amt: '', idx: null });
+      showToast("Expense saved!", "success");
+    } catch (e) {
+      console.error("Save expense error:", e);
+      showToast("Failed to save expense", "error");
+    }
   };
 
-  const saveKhata = () => {
+  const saveKhata = async () => {
     const { name, due, phone, description, idx } = khataForm;
     const d = parseFloat(due);
     if (!name || isNaN(d)) return;
 
-    setData(prev => {
-      const newKhata = [...prev.khata];
+    try {
       const khata: Khata = { 
         name, 
         due: d, 
@@ -567,32 +533,37 @@ export default function App() {
         date: new Date().toLocaleDateString('en-CA'),
         status: 'unpaid'
       };
-      if (idx !== null) newKhata[idx] = { ...newKhata[idx], ...khata };
-      else newKhata.push(khata);
-      return { ...prev, khata: newKhata };
-    });
-    setKhataForm({ name: '', due: '', phone: '', description: '', idx: null });
-    showToast("Khata saved successfully", "success");
+      if (idx !== null) {
+        await setDoc(doc(db, 'khata', (data.khata[idx] as any).id), khata);
+      } else {
+        await addDoc(collection(db, 'khata'), khata);
+      }
+      setKhataForm({ name: '', due: '', phone: '', description: '', idx: null });
+      showToast("Khata saved successfully", "success");
+    } catch (e) {
+      console.error("Save khata error:", e);
+      showToast("Failed to save khata", "error");
+    }
   };
 
-  const markKhataPaid = (idx: number) => {
-    setData(prev => {
-      const newKhata = [...prev.khata];
-      const khata = { ...newKhata[idx] };
-      const originalDue = khata.due;
-      khata.status = 'paid';
-      khata.due = 0;
-      newKhata[idx] = khata;
-      
+  const markKhataPaid = async (idx: number) => {
+    const khata = { ...data.khata[idx] };
+    const originalDue = khata.due;
+    khata.status = 'paid';
+    khata.due = 0;
+    
+    try {
+      await setDoc(doc(db, 'khata', (khata as any).id), khata);
       // Show message options modal
       const messageKhata = { ...khata, due: originalDue };
       setTimeout(() => {
         setMessageModal({ khata: messageKhata, isPaid: true });
       }, 100);
-      
-      return { ...prev, khata: newKhata };
-    });
-    showToast("Khata marked as PAID", "success");
+      showToast("Khata marked as PAID", "success");
+    } catch (e) {
+      console.error("Mark paid error:", e);
+      showToast("Failed to mark as paid", "error");
+    }
   };
 
   const sendKhataMessage = (khata: Khata, isPaid: boolean = false, type: 'sms' | 'whatsapp') => {
@@ -632,17 +603,35 @@ export default function App() {
         >
           <ShieldCheck className="w-16 h-16 text-brand mx-auto mb-6" />
           <h2 className="text-2xl font-bold mb-6">Sohail Super Store</h2>
-          <input 
-            type="password" 
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            placeholder="Enter PIN" 
-            className="bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl w-full mb-4 outline-none text-center text-2xl tracking-[10px]"
-            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-          />
-          <button onClick={handleLogin} className="w-full p-4 rounded-xl bg-linear-to-br from-brand to-[#a855f7] text-white font-extrabold transition-all active:scale-95">
-            UNLOCK SYSTEM
-          </button>
+          
+          <div className="space-y-4">
+            <div className="bg-[#0d1117] border border-[#30363d] p-4 rounded-xl">
+              <p className="text-sm text-[#8b949e] mb-2">Login with Google to Sync Data</p>
+              <button 
+                onClick={handleGoogleLogin} 
+                className="w-full p-4 rounded-xl bg-white text-black font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+              >
+                <LogIn className="w-5 h-5" /> Sign in with Google
+              </button>
+            </div>
+
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-[#30363d]"></span></div>
+              <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-[#8b949e]">Or use PIN</span></div>
+            </div>
+
+            <input 
+              type="password" 
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="Enter PIN" 
+              className="bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl w-full outline-none text-center text-2xl tracking-[10px]"
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+            />
+            <button onClick={handleLogin} className="w-full p-4 rounded-xl bg-linear-to-br from-brand to-[#a855f7] text-white font-extrabold transition-all active:scale-95">
+              UNLOCK SYSTEM
+            </button>
+          </div>
           {loginError && <p className="text-danger text-sm mt-4">Invalid PIN!</p>}
         </motion.div>
       </div>
@@ -767,14 +756,6 @@ export default function App() {
               <h3 className="text-xl font-bold mb-6 text-white">Contact Developer</h3>
               <div className="space-y-3">
                 <a 
-                  href="https://wa.me/923178973375" 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="flex items-center justify-center gap-3 p-4 rounded-xl bg-[#25d366] hover:bg-[#20ba5a] text-white font-bold transition-all active:scale-95 shadow-lg"
-                >
-                  <Plus className="w-5 h-5" /> WhatsApp
-                </a>
-                <a 
                   href="mailto:shahanullah@imsciences.edu.pk" 
                   target="_blank" 
                   rel="noreferrer" 
@@ -815,7 +796,7 @@ export default function App() {
             >
               <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-extrabold">Sohail Super Store</h2>
-                <div className="text-xs text-[#4ade80] font-bold flex items-center gap-2 cursor-pointer" onClick={syncToCloud}>
+                <div className="text-xs text-[#4ade80] font-bold flex items-center gap-2">
                   {isSyncing ? (
                     <RefreshCw className="w-3 h-3 animate-spin text-brand" />
                   ) : (
