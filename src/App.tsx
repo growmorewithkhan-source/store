@@ -124,10 +124,11 @@ const CORRECT_PIN = "1234";
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activeScreen, setActiveScreen] = useState<Screen>('dash');
   const [messageModal, setMessageModal] = useState<{ khata: Khata; isPaid: boolean } | null>(null);
   const [data, setData] = useState<AppData>({ stock: [], sales: [], expenses: [], khata: [] });
@@ -174,31 +175,27 @@ export default function App() {
   // --- Firebase Auth ---
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
+    const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setIsAuthReady(true);
-      if (u) {
-        setIsLoggedIn(true);
-      } else {
-        // Auto-login anonymously if no user is detected
-        try {
-          await signInAnonymously(auth);
-        } catch (e) {
-          console.error("Auto-login failed:", e);
-        }
-      }
     });
     return () => unsub();
   }, []);
 
   const handleGoogleLogin = async () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
       showToast("Logged in with Google!", "success");
-    } catch (e) {
-      console.error("Login error:", e);
-      showToast("Failed to login with Google", "error");
+    } catch (e: any) {
+      if (e.code !== 'auth/cancelled-popup-request') {
+        console.error("Login error:", e);
+        showToast("Failed to login with Google", "error");
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -211,28 +208,6 @@ export default function App() {
       showToast("Logged out successfully", "success");
     } catch (e) {
       console.error("Logout error:", e);
-    }
-  };
-
-  const handleLogin = async () => {
-    if (pin.trim() === CORRECT_PIN) {
-      setIsLoggedIn(true);
-      setLoginError(false);
-      try {
-        if (!auth.currentUser) {
-          await signInAnonymously(auth);
-        }
-        showToast("System Unlocked!", "success");
-      } catch (e: any) {
-        console.error("Auth error:", e);
-        if (e.code === 'auth/operation-not-allowed') {
-          showToast("Anonymous login disabled. Data sync may be limited.", "error");
-        } else {
-          showToast("Logged in locally. Cloud sync may be limited.", "error");
-        }
-      }
-    } else {
-      setLoginError(true);
     }
   };
 
@@ -615,6 +590,83 @@ export default function App() {
     );
   }
 
+  if (!isLoggedIn) {
+    return (
+      <div className="fixed inset-0 bg-bg flex items-center justify-center p-4 z-[9999]">
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-card p-8 rounded-[30px] border border-brand w-full max-w-[400px] text-center shadow-[0_0_50px_rgba(99,102,241,0.2)]"
+        >
+          <div className="w-20 h-20 bg-brand/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <ShieldCheck className="w-10 h-10 text-brand" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">Sohail Super Store</h2>
+          <p className="text-[#8b949e] mb-8">Enter System PIN to Access</p>
+          
+          <div className="space-y-4">
+            <div className="flex justify-center gap-3 mb-6">
+              {[1, 2, 3, 4].map((_, i) => (
+                <div 
+                  key={i} 
+                  className={cn(
+                    "w-4 h-4 rounded-full border-2 border-brand transition-all duration-300",
+                    pin.length > i ? "bg-brand scale-110 shadow-[0_0_10px_rgba(99,102,241,0.5)]" : "bg-transparent"
+                  )}
+                />
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0, 'X'].map((num) => (
+                <button
+                  key={num}
+                  onClick={() => {
+                    if (num === 'C') setPin('');
+                    else if (num === 'X') setPin(pin.slice(0, -1));
+                    else if (typeof num === 'number' && pin.length < 4) {
+                      const newPin = pin + num;
+                      setPin(newPin);
+                      if (newPin.length === 4) {
+                        if (newPin === CORRECT_PIN) {
+                          setIsLoggedIn(true);
+                          setLoginError(false);
+                          showToast("Welcome Back!", 'success');
+                        } else {
+                          setLoginError(true);
+                          setTimeout(() => {
+                            setPin('');
+                            setLoginError(false);
+                          }, 1000);
+                        }
+                      }
+                    }
+                  }}
+                  className={cn(
+                    "h-16 rounded-2xl text-xl font-bold transition-all active:scale-90",
+                    num === 'C' || num === 'X' ? "bg-danger/10 text-danger" : "bg-[#1c2128] text-white hover:bg-brand/10 hover:text-brand border border-[#30363d]"
+                  )}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+
+            {loginError && (
+              <motion.p 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-danger font-bold mt-4"
+              >
+                INVALID PIN! TRY AGAIN
+              </motion.p>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-bg text-[#f0f6fc]">
       {/* Modals */}
@@ -748,6 +800,14 @@ export default function App() {
                 >
                   <Facebook className="w-5 h-5" /> Facebook
                 </a>
+                <a 
+                  href="https://wa.me/923178973375" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="flex items-center justify-center gap-3 p-4 rounded-xl bg-[#25d366] hover:bg-[#20ba5a] text-white font-bold transition-all active:scale-95 shadow-lg"
+                >
+                  <MessageSquare className="w-5 h-5" /> WhatsApp
+                </a>
                 <button 
                   onClick={() => setShowDevModal(false)} 
                   className="w-full p-4 rounded-xl bg-[#30363d] hover:bg-[#3d444d] text-white font-bold mt-4 transition-all active:scale-95"
@@ -777,9 +837,18 @@ export default function App() {
                   {(!user || user.isAnonymous) && (
                     <button 
                       onClick={handleGoogleLogin}
-                      className="text-[10px] bg-white text-black px-3 py-1 rounded-full font-bold flex items-center gap-1 active:scale-95 transition-all"
+                      disabled={isLoggingIn}
+                      className={cn(
+                        "text-[10px] bg-white text-black px-3 py-1 rounded-full font-bold flex items-center gap-1 active:scale-95 transition-all",
+                        isLoggingIn && "opacity-50 cursor-not-allowed"
+                      )}
                     >
-                      <LogIn className="w-3 h-3" /> SYNC GOOGLE
+                      {isLoggingIn ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <LogIn className="w-3 h-3" />
+                      )}
+                      {isLoggingIn ? "LOGGING IN..." : "SYNC GOOGLE"}
                     </button>
                   )}
                   <div className="text-xs text-[#4ade80] font-bold flex items-center gap-2">
@@ -1114,15 +1183,15 @@ export default function App() {
                     </div>
                     
                     <div className="flex gap-2 justify-end pt-2 border-t border-[#30363d]">
+                      <button 
+                        onClick={() => setMessageModal({ khata: k, isPaid: k.status === 'paid' })} 
+                        className="p-3 rounded-xl bg-brand/20 text-brand border border-brand/30 flex-1 flex justify-center"
+                        title="Send Message"
+                      >
+                        <MessageSquare className="w-5 h-5" />
+                      </button>
                       {k.status !== 'paid' ? (
                         <>
-                          <button 
-                            onClick={() => setMessageModal({ khata: k, isPaid: false })} 
-                            className="p-3 rounded-xl bg-brand/20 text-brand border border-brand/30 flex-1 flex justify-center"
-                            title="Send Message"
-                          >
-                            <MessageSquare className="w-5 h-5" />
-                          </button>
                           <button 
                             onClick={() => markKhataPaid(i)} 
                             className="p-3 rounded-xl bg-success/20 text-success border border-success/30 flex-1 flex justify-center"
@@ -1139,9 +1208,12 @@ export default function App() {
                           </button>
                         </>
                       ) : (
-                        <div className="flex-1 flex items-center justify-center text-success font-bold text-sm uppercase tracking-widest">
+                        <button 
+                          onClick={() => setMessageModal({ khata: k, isPaid: true })}
+                          className="flex-1 flex items-center justify-center text-success font-bold text-sm uppercase tracking-widest hover:bg-success/10 rounded-xl transition-all"
+                        >
                           PAID
-                        </div>
+                        </button>
                       )}
                       <button 
                         onClick={() => deleteItem('khata', i)} 
