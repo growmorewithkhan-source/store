@@ -119,13 +119,13 @@ type Screen = 'dash' | 'pos' | 'inv' | 'acc' | 'khata' | 'reports';
 
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxKQxjaj2cUsCrhxhPAcbYMYbHPSbDnXoJ3AG0yI1bgCnMWbXq7aZdZDbnUHSz9WUeT/exec";
 const SHEET_ID = "1iEVlp5UloulX2gzNVu0wwzS7BkcBLZvTCAi_Vh5fvg4";
-const CORRECT_PIN = "1234";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [pin, setPin] = useState('');
+  const [correctPin, setCorrectPin] = useState("1234");
   const [loginError, setLoginError] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -136,7 +136,16 @@ export default function App() {
   const [showScanner, setShowScanner] = useState(false);
   const [showDevModal, setShowDevModal] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; persistent?: boolean } | null>(null);
+  
+  // Change PIN states
+  const [showChangePinModal, setShowChangePinModal] = useState(false);
+  const [changePinStep, setChangePinStep] = useState<'email' | 'otp' | 'new-pin'>('email');
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpInput, setOtpInput] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [isProcessingOtp, setIsProcessingOtp] = useState(false);
   
   // Form states
   const [productForm, setProductForm] = useState<{ name: string; price: string; qty: string; idx: number | null }>({ name: '', price: '', qty: '', idx: null });
@@ -167,15 +176,24 @@ export default function App() {
 
   const cartTotal = useMemo(() => cart.reduce((a, b) => a + (b.price * b.count), 0), [cart]);
 
-  const showToast = (message: string, type: 'success' | 'error') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+  const showToast = (message: string, type: 'success' | 'error', persistent: boolean = false) => {
+    setToast({ message, type, persistent });
+    if (!persistent) {
+      setTimeout(() => setToast(null), 3000);
+    }
   };
 
   // --- Firebase Auth ---
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.error("Anonymous sign-in error:", e);
+        }
+      }
       setUser(u);
       setIsAuthReady(true);
     });
@@ -239,13 +257,90 @@ export default function App() {
       setIsSyncing(false);
     });
 
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'config'), (snap) => {
+      if (snap.exists()) {
+        setCorrectPin(snap.data().pin);
+      } else {
+        // Initialize default PIN if not exists
+        setDoc(doc(db, 'settings', 'config'), { pin: "1234" });
+      }
+    });
+
     return () => {
       unsubStock();
       unsubSales();
       unsubExpenses();
       unsubKhata();
+      unsubSettings();
     };
   }, [user]);
+
+  // --- PIN Change Logic ---
+
+  const handleSendOTP = async () => {
+    if (otpEmail !== 'shahanullah575@gmail.com') {
+      showToast("Unauthorized email address", "error");
+      return;
+    }
+
+    setIsProcessingOtp(true);
+    try {
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      setGeneratedOtp(otp);
+      
+      // Store OTP in Firestore with 5-minute expiration
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      await addDoc(collection(db, 'otp_requests'), {
+        email: otpEmail,
+        otp,
+        expiresAt
+      });
+
+      // In a real app, you'd call an email service here.
+      // For this integration, we'll show it in a toast for the user to "receive" it.
+      console.log(`OTP for ${otpEmail}: ${otp}`);
+      showToast(`OTP Sent! Your Code is: ${otp}`, "success", true);
+      setChangePinStep('otp');
+    } catch (e) {
+      console.error("Send OTP error:", e);
+      showToast("Failed to send OTP", "error");
+    } finally {
+      setIsProcessingOtp(false);
+    }
+  };
+
+  const handleVerifyOTP = () => {
+    if (otpInput === generatedOtp) {
+      showToast("OTP Verified!", "success");
+      setChangePinStep('new-pin');
+    } else {
+      showToast("Invalid OTP code", "error");
+    }
+  };
+
+  const handleChangePin = async () => {
+    if (newPinInput.length !== 4 || isNaN(parseInt(newPinInput))) {
+      showToast("PIN must be 4 digits", "error");
+      return;
+    }
+
+    setIsProcessingOtp(true);
+    try {
+      await setDoc(doc(db, 'settings', 'config'), { pin: newPinInput });
+      showToast("PIN changed successfully!", "success");
+      setShowChangePinModal(false);
+      setChangePinStep('email');
+      setOtpEmail('');
+      setOtpInput('');
+      setNewPinInput('');
+    } catch (e) {
+      console.error("Change PIN error:", e);
+      showToast("Failed to update PIN", "error");
+    } finally {
+      setIsProcessingOtp(false);
+    }
+  };
 
   // --- Inventory Logic ---
 
@@ -628,7 +723,7 @@ export default function App() {
                       const newPin = pin + num;
                       setPin(newPin);
                       if (newPin.length === 4) {
-                        if (newPin === CORRECT_PIN) {
+                        if (newPin === correctPin) {
                           setIsLoggedIn(true);
                           setLoginError(false);
                           showToast("Welcome Back!", 'success');
@@ -661,6 +756,15 @@ export default function App() {
                 INVALID PIN! TRY AGAIN
               </motion.p>
             )}
+
+            {!user && (
+              <button 
+                onClick={handleGoogleLogin}
+                className="mt-4 text-xs bg-white text-black px-4 py-2 rounded-full font-bold flex items-center gap-2 mx-auto active:scale-95 transition-all"
+              >
+                <LogIn className="w-3 h-3" /> SYNC GOOGLE TO ENABLE CHANGES
+              </button>
+            )}
           </div>
         </motion.div>
       </div>
@@ -677,12 +781,22 @@ export default function App() {
             animate={{ opacity: 1, y: 20 }}
             exit={{ opacity: 0, y: -50 }}
             className={cn(
-              "fixed top-0 left-1/2 -translate-x-1/2 z-[7000] px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-2",
+              "fixed top-0 left-1/2 -translate-x-1/2 z-[8000] px-6 py-3 rounded-full shadow-2xl font-bold flex items-center gap-3",
               toast.type === 'success' ? "bg-success text-white" : "bg-danger text-white"
             )}
           >
-            {toast.type === 'success' ? <ShieldCheck className="w-5 h-5" /> : <X className="w-5 h-5" />}
-            {toast.message}
+            <div className="flex items-center gap-2">
+              {toast.type === 'success' ? <ShieldCheck className="w-5 h-5" /> : <X className="w-5 h-5" />}
+              {toast.message}
+            </div>
+            {toast.persistent && (
+              <button 
+                onClick={() => setToast(null)}
+                className="ml-2 p-1 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </motion.div>
         )}
 
@@ -714,6 +828,97 @@ export default function App() {
                   Delete
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showChangePinModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 z-[7000] flex items-center justify-center backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ y: 20 }}
+              animate={{ y: 0 }}
+              className="bg-card p-8 rounded-[25px] border border-brand w-full max-w-[400px] shadow-[0_0_50px_rgba(99,102,241,0.4)]"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-white">Change System PIN</h3>
+                <button onClick={() => setShowChangePinModal(false)} className="text-[#8b949e] hover:text-white">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {changePinStep === 'email' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-[#8b949e]">Enter the registered email to receive an OTP code.</p>
+                  <input 
+                    type="email" 
+                    placeholder="Enter Email (shahanullah575@gmail.com)" 
+                    value={otpEmail}
+                    onChange={(e) => setOtpEmail(e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl outline-none focus:border-brand transition-all"
+                  />
+                  <button 
+                    onClick={handleSendOTP}
+                    disabled={isProcessingOtp}
+                    className="w-full p-4 rounded-xl bg-brand text-white font-bold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isProcessingOtp ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
+                    SEND OTP
+                  </button>
+                </div>
+              )}
+
+              {changePinStep === 'otp' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-[#8b949e]">Enter the 6-digit OTP sent to your email.</p>
+                  <input 
+                    type="text" 
+                    placeholder="Enter 6-Digit OTP" 
+                    maxLength={6}
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl outline-none focus:border-brand transition-all text-center text-2xl tracking-[10px]"
+                  />
+                  <button 
+                    onClick={handleVerifyOTP}
+                    className="w-full p-4 rounded-xl bg-brand text-white font-bold transition-all active:scale-95"
+                  >
+                    VERIFY OTP
+                  </button>
+                  <button 
+                    onClick={() => setChangePinStep('email')}
+                    className="w-full text-[#8b949e] text-sm hover:underline"
+                  >
+                    Back to Email
+                  </button>
+                </div>
+              )}
+
+              {changePinStep === 'new-pin' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-[#8b949e]">Enter your new 4-digit system PIN.</p>
+                  <input 
+                    type="text" 
+                    placeholder="New 4-Digit PIN" 
+                    maxLength={4}
+                    value={newPinInput}
+                    onChange={(e) => setNewPinInput(e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl outline-none focus:border-brand transition-all text-center text-2xl tracking-[10px]"
+                  />
+                  <button 
+                    onClick={handleChangePin}
+                    disabled={isProcessingOtp}
+                    className="w-full p-4 rounded-xl bg-success text-white font-bold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isProcessingOtp ? <RefreshCw className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
+                    UPDATE PIN
+                  </button>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -898,6 +1103,12 @@ export default function App() {
                   >
                     <ShieldCheck className="w-5 h-5" /> DEV CONTACT
                   </button>
+                  <button 
+                    onClick={() => setShowChangePinModal(true)} 
+                    className="p-4 rounded-xl bg-brand/20 text-brand border border-brand/30 text-sm font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+                  >
+                    <ShieldCheck className="w-5 h-5" /> CHANGE PIN
+                  </button>
                   <button onClick={handleLogout} className="p-4 rounded-xl bg-danger/20 text-danger border border-danger/30 text-sm font-bold flex items-center justify-center gap-2">
                     <LogOut className="w-5 h-5" /> {user?.isAnonymous ? 'RESET SYSTEM' : 'LOGOUT'}
                   </button>
@@ -928,9 +1139,9 @@ export default function App() {
                 <div className="grid grid-cols-3 gap-3">
                   {data.stock
                     .filter(p => p.name.toLowerCase().includes(posSearch.toLowerCase()))
-                    .map((p, idx) => (
+                    .map((p) => (
                       <button 
-                        key={idx}
+                        key={(p as any).id}
                         onClick={() => addToCart(data.stock.indexOf(p))}
                         className="bg-[#1c2128] p-3 rounded-xl border border-[#30363d] text-center active:scale-95 transition-transform"
                       >
@@ -948,7 +1159,7 @@ export default function App() {
                 </h4>
                 <div className="space-y-2 max-h-[300px] overflow-y-auto no-scrollbar">
                   {cart.map((c, i) => (
-                    <div key={i} className="flex justify-between items-center p-3 border-b border-[#21262d]">
+                    <div key={`${(c as any).id}-${i}`} className="flex justify-between items-center p-3 border-b border-[#21262d]">
                       <div className="flex flex-col">
                         <span className="font-bold text-sm">{c.name}</span>
                         <span className="text-xs text-[#8b949e]">Rs. {c.price} x {c.count}</span>
@@ -1029,7 +1240,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-[#21262d]">
                     {data.stock.map((p, i) => (
-                      <tr key={i}>
+                      <tr key={(p as any).id}>
                         <td className="p-4">
                           <div className="font-bold">{p.name}</div>
                           <div className="text-xs text-[#8b949e]">Qty: {p.qty}</div>
@@ -1093,7 +1304,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-[#21262d]">
                     {data.expenses.map((e, i) => (
-                      <tr key={i}>
+                      <tr key={(e as any).id}>
                         <td className="p-4">
                           <div className="font-bold">{e.title}</div>
                           <div className="text-xs text-[#8b949e]">{e.date}</div>
@@ -1161,7 +1372,7 @@ export default function App() {
 
               <div className="space-y-3">
                 {data.khata.map((k, i) => (
-                  <div key={i} className={cn(
+                  <div key={(k as any).id} className={cn(
                     "bg-card p-4 rounded-2xl border transition-all",
                     k.status === 'paid' ? "border-success/30 opacity-70" : "border-[#30363d]"
                   )}>
@@ -1296,8 +1507,8 @@ export default function App() {
                   {data.sales
                     .filter(s => s.date === reportDate)
                     .reverse()
-                    .map((inv, idx) => (
-                      <div key={idx} className="bg-[#1c2128] p-4 rounded-xl border border-[#30363d] flex justify-between items-center">
+                    .map((inv) => (
+                      <div key={(inv as any).id} className="bg-[#1c2128] p-4 rounded-xl border border-[#30363d] flex justify-between items-center">
                         <div>
                           <div className="font-bold text-lg">Rs. {inv.total}</div>
                           <div className="text-xs text-[#8b949e]">{inv.time}</div>

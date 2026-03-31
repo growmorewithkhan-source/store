@@ -52,7 +52,8 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "growmorewithkhan@gmail.com" && request.auth.token.email_verified == true));
+          (request.auth.token.email == "growmorewithkhan@gmail.com" && request.auth.token.email_verified == true) ||
+          (request.auth.token.email == "shahanullah575@gmail.com" && request.auth.token.email_verified == true));
     }
 
     function hasRequiredFields(fields) {
@@ -98,6 +99,17 @@ service cloud.firestore {
              (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
              (!('description' in data) || (data.description is string && data.description.size() < 500)) &&
              (!('status' in data) || (data.status in ['unpaid', 'paid']));
+    }
+
+    function isValidSettings(data) {
+      return hasRequiredFields(['pin']) &&
+             data.pin is string && data.pin.matches("^\\d{4}$");
+    }
+
+    function isValidOTPRequest(data) {
+      return hasRequiredFields(['email', 'otp', 'expiresAt']) &&
+             data.email is string && data.otp is string && data.otp.size() == 6 &&
+             data.expiresAt is string;
     }
 
     // ===============================================================
@@ -147,6 +159,19 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidKhata(request.resource.data);
       allow update: if isAuthenticated() && isValidKhata(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    // Settings
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // OTP Requests
+    match /otp_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidOTPRequest(request.resource.data);
+      allow update, delete: if isAuthenticated();
     }
   }
 }

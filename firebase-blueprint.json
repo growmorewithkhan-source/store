@@ -61,9 +61,37 @@
         "status": { "type": "string", "enum": ["unpaid", "paid"] }
       },
       "required": ["name", "due", "date"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "App-wide settings",
+      "type": "object",
+      "properties": {
+        "pin": { "type": "string", "description": "The 4-digit PIN for access" }
+      },
+      "required": ["pin"]
+    },
+    "OTPRequest": {
+      "title": "OTPRequest",
+      "description": "A request to change the PIN",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Email to send OTP to" },
+        "otp": { "type": "string", "description": "The 6-digit OTP code" },
+        "expiresAt": { "type": "string", "description": "Expiration timestamp" }
+      },
+      "required": ["email", "otp", "expiresAt"]
     }
   },
   "firestore": {
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "Collection for app settings"
+    },
+    "/otp_requests/{requestId}": {
+      "schema": "OTPRequest",
+      "description": "Collection for OTP verification"
+    },
     "/stock/{productId}": {
       "schema": "Product",
       "description": "Collection of stock items"
