@@ -648,11 +648,21 @@ export default function App() {
   };
 
   const sendKhataMessage = (khata: Khata, isPaid: boolean = false, type: 'sms' | 'whatsapp') => {
-    const message = isPaid 
-      ? `SOHAIL SUPER STORE:\nDear ${khata.name}, your payment of Rs. ${khata.due} has been RECEIVED. Your balance is now 0. Thank you!`
-      : `SOHAIL SUPER STORE:\nDear ${khata.name}, your balance due is Rs. ${khata.due}.\nDescription: ${khata.description || 'N/A'}\nPlease clear your dues.`;
+    const customerPhone = khata.phone ? String(khata.phone).replace(/[^0-9]/g, '') : '';
     
-    const phone = khata.phone ? String(khata.phone).replace(/[^0-9]/g, '') : '';
+    // Calculate total remaining balance for this customer across all entries
+    const totalRemaining = data.khata
+      .filter(k => 
+        k.name.trim().toLowerCase() === khata.name.trim().toLowerCase() && 
+        (k.phone ? String(k.phone).replace(/[^0-9]/g, '') : '') === customerPhone
+      )
+      .reduce((sum, k) => sum + (Number(k.due) || 0), 0);
+
+    const message = isPaid 
+      ? `SOHAIL SUPER STORE:\nDear ${khata.name}, your payment of Rs. ${khata.due} has been RECEIVED. Your total remaining balance is Rs. ${totalRemaining}. Thank you!`
+      : `SOHAIL SUPER STORE:\nDear ${khata.name}, your balance due for this entry is Rs. ${khata.due}.\nTOTAL REMAINING BALANCE: Rs. ${totalRemaining}.\nDescription: ${khata.description || 'N/A'}\nPlease clear your dues.`;
+    
+    const phone = customerPhone;
     if (!phone) {
       showToast("No phone number provided", "error");
       return;
