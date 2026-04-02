@@ -97,6 +97,20 @@ interface Expense {
   date: string;
 }
 
+interface KhataPayment {
+  amount: number;
+  description: string;
+  date: string;
+  time: string;
+}
+
+interface KhataEntry {
+  amount: number;
+  description: string;
+  date: string;
+  time: string;
+}
+
 interface Khata {
   name: string;
   due: number;
@@ -104,6 +118,8 @@ interface Khata {
   phone: string;
   description: string;
   status?: 'unpaid' | 'paid';
+  payments?: KhataPayment[];
+  debts?: KhataEntry[];
 }
 
 interface AppData {
@@ -130,7 +146,13 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activeScreen, setActiveScreen] = useState<Screen>('dash');
-  const [messageModal, setMessageModal] = useState<{ khata: Khata; isPaid: boolean } | null>(null);
+  const [messageModal, setMessageModal] = useState<{ khata: Khata; isPaid: boolean; amountPaid?: number; prevBalance?: number; amountAdded?: number } | null>(null);
+  const [paymentModal, setPaymentModal] = useState<{ khata: Khata; idx: number } | null>(null);
+  const [historyModal, setHistoryModal] = useState<Khata | null>(null);
+  const [addDebtModal, setAddDebtModal] = useState<{ khata: Khata; idx: number } | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDescription, setPaymentDescription] = useState('');
+  const [debtForm, setDebtForm] = useState({ amount: '', description: '' });
   const [data, setData] = useState<AppData>({ stock: [], sales: [], expenses: [], khata: [] });
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [showScanner, setShowScanner] = useState(false);
@@ -605,6 +627,17 @@ export default function App() {
     const d = parseFloat(due);
     if (!name || isNaN(d)) return;
 
+    const customerPhone = phone ? String(phone).replace(/[^0-9]/g, '') : '';
+    
+    // Calculate total remaining balance for this customer BEFORE adding this new entry
+    const prevTotal = data.khata
+      .filter(k => 
+        k.name.trim().toLowerCase() === name.trim().toLowerCase() && 
+        (k.phone ? String(k.phone).replace(/[^0-9]/g, '') : '') === customerPhone &&
+        k.status !== 'paid'
+      )
+      .reduce((sum, k) => sum + (Number(k.due) || 0), 0);
+
     try {
       const khata: Khata = { 
         name, 
@@ -614,16 +647,130 @@ export default function App() {
         date: new Date().toLocaleDateString('en-CA'),
         status: 'unpaid'
       };
+      
+      let savedKhata = { ...khata };
+
       if (idx !== null) {
-        await setDoc(doc(db, 'khata', (data.khata[idx] as any).id), khata);
+        const id = (data.khata[idx] as any).id;
+        await setDoc(doc(db, 'khata', id), khata);
+        savedKhata = { ...khata, id } as any;
       } else {
-        await addDoc(collection(db, 'khata'), khata);
+        const docRef = await addDoc(collection(db, 'khata'), khata);
+        savedKhata = { ...khata, id: docRef.id } as any;
       }
+
       setKhataForm({ name: '', due: '', phone: '', description: '', idx: null });
       showToast("Khata saved successfully", "success");
+
+      // Show message modal for adding debt
+      if (idx === null) {
+        setMessageModal({ 
+          khata: savedKhata, 
+          isPaid: false, 
+          prevBalance: prevTotal, 
+          amountAdded: d 
+        });
+      }
     } catch (e) {
       console.error("Save khata error:", e);
       showToast("Failed to save khata", "error");
+    }
+  };
+
+  const handlePartialPayment = async () => {
+    if (!paymentModal || !paymentAmount) return;
+    const amt = parseFloat(paymentAmount);
+    if (isNaN(amt) || amt <= 0) {
+      showToast("Invalid amount", "error");
+      return;
+    }
+
+    const { khata, idx } = paymentModal;
+    if (amt > khata.due) {
+      showToast("Amount exceeds due balance", "error");
+      return;
+    }
+
+    const newDue = khata.due - amt;
+    const newPayment: KhataPayment = {
+      amount: amt,
+      description: paymentDescription || 'Payment Received',
+      date: new Date().toLocaleDateString('en-CA'),
+      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const updatedKhata = { 
+      ...khata, 
+      due: newDue, 
+      status: newDue === 0 ? 'paid' : 'unpaid',
+      payments: [...(khata.payments || []), newPayment]
+    };
+
+    try {
+      await setDoc(doc(db, 'khata', (khata as any).id), updatedKhata);
+      showToast(newDue === 0 ? "Full payment received!" : `Partial payment of Rs. ${amt} received`, "success");
+      
+      // Show message modal for payment
+      setMessageModal({ 
+        khata: { ...khata, due: amt, description: newPayment.description }, 
+        isPaid: true, 
+        amountPaid: amt 
+      });
+      
+      setPaymentModal(null);
+      setPaymentAmount('');
+      setPaymentDescription('');
+    } catch (e) {
+      console.error("Partial payment error:", e);
+      showToast("Failed to process payment", "error");
+    }
+  };
+
+  const handleAddDebt = async () => {
+    if (!addDebtModal || !debtForm.amount) return;
+    const amt = parseFloat(debtForm.amount);
+    if (isNaN(amt) || amt <= 0) {
+      showToast("Invalid amount", "error");
+      return;
+    }
+
+    const { khata } = addDebtModal;
+    const prevTotal = data.khata
+      .filter(k => k.phone === khata.phone && k.status === 'unpaid')
+      .reduce((sum, k) => sum + k.due, 0);
+
+    const newDebt: KhataEntry = {
+      amount: amt,
+      description: debtForm.description || 'New Entry',
+      date: new Date().toLocaleDateString('en-CA'),
+      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const newDue = khata.due + amt;
+    const updatedKhata = {
+      ...khata,
+      due: newDue,
+      status: 'unpaid' as const,
+      debts: [...(khata.debts || []), newDebt]
+    };
+
+    try {
+      await setDoc(doc(db, 'khata', (khata as any).id), updatedKhata);
+      showToast("New entry added successfully", "success");
+      
+      // Show message modal
+      setMessageModal({ 
+        khata: { ...khata, due: newDue, description: newDebt.description }, 
+        isPaid: false, 
+        prevBalance: prevTotal, 
+        amountAdded: amt 
+      });
+      
+      setAddDebtModal(null);
+      setDebtForm({ amount: '', description: '' });
+    } catch (e) {
+      console.error("Add debt error:", e);
+      showToast("Failed to add entry", "error");
     }
   };
 
@@ -654,13 +801,24 @@ export default function App() {
     const totalRemaining = data.khata
       .filter(k => 
         k.name.trim().toLowerCase() === khata.name.trim().toLowerCase() && 
-        (k.phone ? String(k.phone).replace(/[^0-9]/g, '') : '') === customerPhone
+        (k.phone ? String(k.phone).replace(/[^0-9]/g, '') : '') === customerPhone &&
+        k.status !== 'paid'
       )
       .reduce((sum, k) => sum + (Number(k.due) || 0), 0);
 
-    const message = isPaid 
-      ? `SOHAIL SUPER STORE:\nDear ${khata.name}, your payment of Rs. ${khata.due} has been RECEIVED. Your total remaining balance is Rs. ${totalRemaining}. Thank you!`
-      : `SOHAIL SUPER STORE:\nDear ${khata.name}, your balance due for this entry is Rs. ${khata.due}.\nTOTAL REMAINING BALANCE: Rs. ${totalRemaining}.\nDescription: ${khata.description || 'N/A'}\nPlease clear your dues.`;
+    let message = "";
+    if (isPaid) {
+      const paidAmt = messageModal?.amountPaid || khata.due;
+      message = `SOHAIL SUPER STORE:\nDear ${khata.name}, your payment of Rs. ${paidAmt} for (${khata.description || 'N/A'}) has been RECEIVED.\nYour total remaining balance is Rs. ${totalRemaining}.\nThank you!`;
+    } else {
+      if (messageModal?.amountAdded) {
+        const prevBal = messageModal.prevBalance || 0;
+        const added = messageModal.amountAdded;
+        message = `SOHAIL SUPER STORE:\nDear ${khata.name},\nPrevious Balance: Rs. ${prevBal}\nNew Item (${khata.description || 'N/A'}) Added: Rs. ${added}\nTOTAL BALANCE: Rs. ${totalRemaining}.\nPlease clear your dues.`;
+      } else {
+        message = `SOHAIL SUPER STORE:\nDear ${khata.name}, your balance due for (${khata.description || 'N/A'}) is Rs. ${khata.due}.\nTOTAL REMAINING BALANCE: Rs. ${totalRemaining}.\nPlease clear your dues.`;
+      }
+    }
     
     const phone = customerPhone;
     if (!phone) {
@@ -985,6 +1143,185 @@ export default function App() {
           </motion.div>
         )}
 
+        {paymentModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 z-[5000] flex items-center justify-center backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ y: 20 }}
+              animate={{ y: 0 }}
+              className="bg-card p-8 rounded-[25px] border border-brand w-full max-w-[400px] shadow-[0_0_50px_rgba(99,102,241,0.4)]"
+            >
+              <h3 className="text-xl font-bold mb-4 text-white">Receive Payment</h3>
+              <p className="text-sm text-[#8b949e] mb-6">Customer: <span className="text-white font-bold">{paymentModal.khata.name}</span><br/>Remaining Due: Rs. {paymentModal.khata.due}</p>
+              
+              <div className="space-y-4">
+                <input 
+                  type="number" 
+                  placeholder="Enter Amount Received" 
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="w-full bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl outline-none focus:border-brand transition-all text-center text-2xl"
+                />
+                <input 
+                  type="text" 
+                  placeholder="Payment for? (e.g. Eggs payment)" 
+                  value={paymentDescription}
+                  onChange={(e) => setPaymentDescription(e.target.value)}
+                  className="w-full bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl outline-none focus:border-brand transition-all"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => {
+                      setPaymentModal(null);
+                      setPaymentAmount('');
+                      setPaymentDescription('');
+                    }} 
+                    className="p-4 rounded-xl bg-[#30363d] text-white font-bold transition-all active:scale-95"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handlePartialPayment}
+                    className="p-4 rounded-xl bg-success text-white font-bold transition-all active:scale-95"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {addDebtModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 z-[5000] flex items-center justify-center backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ y: 20 }}
+              animate={{ y: 0 }}
+              className="bg-card p-8 rounded-[25px] border border-brand w-full max-w-[400px] shadow-[0_0_50px_rgba(99,102,241,0.4)]"
+            >
+              <h3 className="text-xl font-bold mb-4 text-white">Add New Entry</h3>
+              <p className="text-sm text-[#8b949e] mb-6">Customer: <span className="text-white font-bold">{addDebtModal.khata.name}</span><br/>Current Due: Rs. {addDebtModal.khata.due}</p>
+              
+              <div className="space-y-4">
+                <input 
+                  type="number" 
+                  placeholder="Amount" 
+                  value={debtForm.amount}
+                  onChange={(e) => setDebtForm(prev => ({ ...prev, amount: e.target.value }))}
+                  className="w-full bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl outline-none focus:border-brand transition-all"
+                />
+                <textarea 
+                  placeholder="Description (e.g. Sugar 5kg)" 
+                  value={debtForm.description}
+                  onChange={(e) => setDebtForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full bg-[#0d1117] border border-[#30363d] text-white p-4 rounded-xl outline-none focus:border-brand transition-all min-h-[100px] resize-none"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => {
+                      setAddDebtModal(null);
+                      setDebtForm({ amount: '', description: '' });
+                    }} 
+                    className="p-4 rounded-xl bg-[#30363d] text-white font-bold transition-all active:scale-95"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleAddDebt}
+                    className="p-4 rounded-xl bg-warning text-white font-bold transition-all active:scale-95"
+                  >
+                    Add Entry
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {historyModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 z-[5000] flex items-center justify-center backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ y: 20 }}
+              animate={{ y: 0 }}
+              className="bg-card p-8 rounded-[25px] border border-brand w-full max-w-[450px] shadow-[0_0_50px_rgba(99,102,241,0.4)] max-h-[80vh] flex flex-col"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-white">Payment History</h3>
+                <button onClick={() => setHistoryModal(null)} className="text-[#8b949e] hover:text-white">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="mb-6 p-4 bg-[#0d1117] rounded-xl border border-[#30363d]">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="text-xs text-[#8b949e] uppercase font-bold">Customer</div>
+                    <div className="text-white font-bold">{historyModal.name}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-[#8b949e] uppercase font-bold">Remaining</div>
+                    <div className="text-danger font-bold text-lg">Rs. {historyModal.due}</div>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-[#30363d]">
+                  <div className="text-xs text-[#8b949e] uppercase font-bold">Item Description</div>
+                  <div className="text-white text-sm italic">{historyModal.description}</div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                {(!historyModal.payments || historyModal.payments.length === 0) && (!historyModal.debts || historyModal.debts.length === 0) ? (
+                  <div className="text-center py-10 text-[#8b949e]">No history recorded yet.</div>
+                ) : (
+                  [
+                    ...(historyModal.debts || []).map(d => ({ ...d, type: 'debt' as const })),
+                    ...(historyModal.payments || []).map(p => ({ amount: p.amount, description: p.description || 'Payment Received', date: p.date, time: p.time, type: 'payment' as const }))
+                  ]
+                  .sort((a, b) => new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime())
+                  .map((item, i) => (
+                    <div key={i} className="bg-[#1c2128] p-4 rounded-xl border border-[#30363d] flex justify-between items-center">
+                      <div>
+                        <div className={cn("font-bold", item.type === 'payment' ? "text-success" : "text-danger")}>
+                          {item.type === 'payment' ? '-' : '+'} Rs. {item.amount}
+                        </div>
+                        <div className="text-xs text-white mt-1">{item.description}</div>
+                        <div className="text-[10px] text-[#8b949e]">{item.date} • {item.time}</div>
+                      </div>
+                      <div className={cn(
+                        "text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider",
+                        item.type === 'payment' ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+                      )}>
+                        {item.type === 'payment' ? 'Received' : 'Added'}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              
+              <button 
+                onClick={() => setHistoryModal(null)}
+                className="w-full p-4 rounded-xl bg-brand text-white font-bold mt-6 transition-all active:scale-95"
+              >
+                CLOSE
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+
         {showDevModal && (
           <motion.div 
             initial={{ opacity: 0 }}
@@ -1149,9 +1486,9 @@ export default function App() {
                 <div className="grid grid-cols-3 gap-3">
                   {data.stock
                     .filter(p => p.name.toLowerCase().includes(posSearch.toLowerCase()))
-                    .map((p) => (
+                    .map((p, i) => (
                       <button 
-                        key={(p as any).id}
+                        key={(p as any).id || `pos-stock-${i}`}
                         onClick={() => addToCart(data.stock.indexOf(p))}
                         className="bg-[#1c2128] p-3 rounded-xl border border-[#30363d] text-center active:scale-95 transition-transform"
                       >
@@ -1250,7 +1587,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-[#21262d]">
                     {data.stock.map((p, i) => (
-                      <tr key={(p as any).id}>
+                      <tr key={(p as any).id || `stock-${i}`}>
                         <td className="p-4">
                           <div className="font-bold">{p.name}</div>
                           <div className="text-xs text-[#8b949e]">Qty: {p.qty}</div>
@@ -1314,7 +1651,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-[#21262d]">
                     {data.expenses.map((e, i) => (
-                      <tr key={(e as any).id}>
+                      <tr key={(e as any).id || `expense-${i}`}>
                         <td className="p-4">
                           <div className="font-bold">{e.title}</div>
                           <div className="text-xs text-[#8b949e]">{e.date}</div>
@@ -1382,7 +1719,7 @@ export default function App() {
 
               <div className="space-y-3">
                 {data.khata.map((k, i) => (
-                  <div key={(k as any).id} className={cn(
+                  <div key={(k as any).id || `khata-${i}`} className={cn(
                     "bg-card p-4 rounded-2xl border transition-all",
                     k.status === 'paid' ? "border-success/30 opacity-70" : "border-[#30363d]"
                   )}>
@@ -1405,6 +1742,20 @@ export default function App() {
                     
                     <div className="flex gap-2 justify-end pt-2 border-t border-[#30363d]">
                       <button 
+                        onClick={() => setAddDebtModal({ khata: k, idx: i })} 
+                        className="p-3 rounded-xl bg-warning/20 text-warning border border-warning/30 flex-1 flex justify-center"
+                        title="Add New Entry"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={() => setHistoryModal(k)} 
+                        className="p-3 rounded-xl bg-info/20 text-info border border-info/30 flex-1 flex justify-center"
+                        title="View History"
+                      >
+                        <History className="w-5 h-5" />
+                      </button>
+                      <button 
                         onClick={() => setMessageModal({ khata: k, isPaid: k.status === 'paid' })} 
                         className="p-3 rounded-xl bg-brand/20 text-brand border border-brand/30 flex-1 flex justify-center"
                         title="Send Message"
@@ -1414,11 +1765,11 @@ export default function App() {
                       {k.status !== 'paid' ? (
                         <>
                           <button 
-                            onClick={() => markKhataPaid(i)} 
+                            onClick={() => setPaymentModal({ khata: k, idx: i })} 
                             className="p-3 rounded-xl bg-success/20 text-success border border-success/30 flex-1 flex justify-center"
-                            title="Mark as Paid"
+                            title="Receive Payment"
                           >
-                            <CheckCircle className="w-5 h-5" />
+                            <Wallet className="w-5 h-5" />
                           </button>
                           <button 
                             onClick={() => setKhataForm({ name: k.name, due: k.due.toString(), phone: String(k.phone || ''), description: k.description || '', idx: i })} 
@@ -1517,8 +1868,8 @@ export default function App() {
                   {data.sales
                     .filter(s => s.date === reportDate)
                     .reverse()
-                    .map((inv) => (
-                      <div key={(inv as any).id} className="bg-[#1c2128] p-4 rounded-xl border border-[#30363d] flex justify-between items-center">
+                    .map((inv, i) => (
+                      <div key={(inv as any).id || `sale-${i}`} className="bg-[#1c2128] p-4 rounded-xl border border-[#30363d] flex justify-between items-center">
                         <div>
                           <div className="font-bold text-lg">Rs. {inv.total}</div>
                           <div className="text-xs text-[#8b949e]">{inv.time}</div>
