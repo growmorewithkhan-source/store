@@ -209,14 +209,29 @@ export default function App() {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
+      if (u) {
+        if (!u.isAnonymous) {
+          const allowedEmails = [
+            "growmorewithkhan@gmail.com", 
+            "shahanullah575@gmail.com",
+            "sohail1530pp@gmail.com",
+            "Jan207696@gmail.com"
+          ];
+          if (u.email && !allowedEmails.includes(u.email)) {
+            await signOut(auth);
+            showToast("Unauthorized account", "error");
+            return;
+          }
+        }
+        setUser(u);
+      } else {
         try {
           await signInAnonymously(auth);
         } catch (e) {
           console.error("Anonymous sign-in error:", e);
         }
+        setUser(null);
       }
-      setUser(u);
       setIsAuthReady(true);
     });
     return () => unsub();
@@ -227,7 +242,21 @@ export default function App() {
     setIsLoggingIn(true);
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const email = result.user.email;
+      const allowedEmails = [
+        "growmorewithkhan@gmail.com", 
+        "shahanullah575@gmail.com",
+        "sohail1530pp@gmail.com",
+        "Jan207696@gmail.com"
+      ];
+      
+      if (email && !allowedEmails.includes(email)) {
+        await signOut(auth);
+        showToast("Access Denied: Unauthorized account", "error");
+        return;
+      }
+      
       showToast("Logged in with Google!", "success");
     } catch (e: any) {
       if (e.code !== 'auth/cancelled-popup-request') {
@@ -1486,9 +1515,9 @@ export default function App() {
                 <div className="grid grid-cols-3 gap-3">
                   {data.stock
                     .filter(p => p.name.toLowerCase().includes(posSearch.toLowerCase()))
-                    .map((p, i) => (
+                    .map((p) => (
                       <button 
-                        key={(p as any).id || `pos-stock-${i}`}
+                        key={(p as any).id}
                         onClick={() => addToCart(data.stock.indexOf(p))}
                         className="bg-[#1c2128] p-3 rounded-xl border border-[#30363d] text-center active:scale-95 transition-transform"
                       >
@@ -1587,7 +1616,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-[#21262d]">
                     {data.stock.map((p, i) => (
-                      <tr key={(p as any).id || `stock-${i}`}>
+                      <tr key={(p as any).id}>
                         <td className="p-4">
                           <div className="font-bold">{p.name}</div>
                           <div className="text-xs text-[#8b949e]">Qty: {p.qty}</div>
@@ -1651,7 +1680,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-[#21262d]">
                     {data.expenses.map((e, i) => (
-                      <tr key={(e as any).id || `expense-${i}`}>
+                      <tr key={(e as any).id}>
                         <td className="p-4">
                           <div className="font-bold">{e.title}</div>
                           <div className="text-xs text-[#8b949e]">{e.date}</div>
@@ -1719,7 +1748,7 @@ export default function App() {
 
               <div className="space-y-3">
                 {data.khata.map((k, i) => (
-                  <div key={(k as any).id || `khata-${i}`} className={cn(
+                  <div key={(k as any).id} className={cn(
                     "bg-card p-4 rounded-2xl border transition-all",
                     k.status === 'paid' ? "border-success/30 opacity-70" : "border-[#30363d]"
                   )}>
@@ -1868,8 +1897,8 @@ export default function App() {
                   {data.sales
                     .filter(s => s.date === reportDate)
                     .reverse()
-                    .map((inv, i) => (
-                      <div key={(inv as any).id || `sale-${i}`} className="bg-[#1c2128] p-4 rounded-xl border border-[#30363d] flex justify-between items-center">
+                    .map((inv) => (
+                      <div key={(inv as any).id} className="bg-[#1c2128] p-4 rounded-xl border border-[#30363d] flex justify-between items-center">
                         <div>
                           <div className="font-bold text-lg">Rs. {inv.total}</div>
                           <div className="text-xs text-[#8b949e]">{inv.time}</div>

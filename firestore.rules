@@ -53,7 +53,9 @@ service cloud.firestore {
       return isAuthenticated() &&
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
           (request.auth.token.email == "growmorewithkhan@gmail.com" && request.auth.token.email_verified == true) ||
-          (request.auth.token.email == "shahanullah575@gmail.com" && request.auth.token.email_verified == true));
+          (request.auth.token.email == "shahanullah575@gmail.com" && request.auth.token.email_verified == true) ||
+          (request.auth.token.email == "sohail1530pp@gmail.com" && request.auth.token.email_verified == true) ||
+          (request.auth.token.email == "Jan207696@gmail.com" && request.auth.token.email_verified == true));
     }
 
     function hasRequiredFields(fields) {
@@ -131,47 +133,47 @@ service cloud.firestore {
 
     // Stock
     match /stock/{productId} {
-      allow read: if isAuthenticated();
+      allow read: if isAdmin();
       allow create: if isAdmin() && isValidProduct(request.resource.data);
-      allow update: if isAuthenticated() && isValidProduct(request.resource.data);
+      allow update: if isAdmin() && isValidProduct(request.resource.data);
       allow delete: if isAdmin();
     }
 
     // Sales
     match /sales/{saleId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidSale(request.resource.data);
-      allow update: if isAuthenticated() && isValidSale(request.resource.data);
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidSale(request.resource.data);
+      allow update: if isAdmin() && isValidSale(request.resource.data);
       allow delete: if isAdmin();
     }
 
     // Expenses
     match /expenses/{expenseId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidExpense(request.resource.data);
-      allow update: if isAuthenticated() && isValidExpense(request.resource.data);
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidExpense(request.resource.data);
+      allow update: if isAdmin() && isValidExpense(request.resource.data);
       allow delete: if isAdmin();
     }
 
     // Khata
     match /khata/{khataId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidKhata(request.resource.data);
-      allow update: if isAuthenticated() && isValidKhata(request.resource.data);
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidKhata(request.resource.data);
+      allow update: if isAdmin() && isValidKhata(request.resource.data);
       allow delete: if isAdmin();
     }
 
     // Settings
     match /settings/{settingId} {
-      allow read: if isAuthenticated();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 
     // OTP Requests
     match /otp_requests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidOTPRequest(request.resource.data);
-      allow update, delete: if isAuthenticated();
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidOTPRequest(request.resource.data);
+      allow update, delete: if isAdmin();
     }
   }
 }
